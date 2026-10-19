@@ -29,9 +29,10 @@ header .meta{font-size:11px;color:var(--muted);margin-top:2px}
 .hud .pill{pointer-events:auto;background:#141822cc;backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:11px;color:var(--muted)}
 .legend{display:flex;flex-wrap:wrap;gap:6px 10px;max-width:70vw}
 .legend span{display:inline-flex;align-items:center;gap:5px}
-.sheet{position:fixed;left:0;right:0;bottom:0;z-index:20;max-height:78dvh;background:var(--panel);border-radius:18px 18px 0 0;border:1px solid var(--line);border-bottom:0;box-shadow:0 -12px 40px #0008;display:flex;flex-direction:column;transform:translateY(110%);transition:transform .28s cubic-bezier(.2,.8,.2,1);padding-bottom:var(--safe)}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:20;height:56dvh;max-height:56dvh;background:var(--panel);border-radius:18px 18px 0 0;border:1px solid var(--line);border-bottom:0;box-shadow:0 -12px 40px #0008;display:flex;flex-direction:column;transform:translateY(110%);transition:transform .28s cubic-bezier(.2,.8,.2,1);padding-bottom:var(--safe)}
 .sheet.open{transform:none}
-.sheet .handle{width:40px;height:4px;border-radius:4px;background:#3a4258;margin:8px auto 4px}
+.sheet.full{height:88dvh;max-height:88dvh}
+.sheet .handle{width:44px;height:5px;border-radius:4px;background:#3a4258;margin:8px auto 4px;padding:0;border:0;box-shadow:0 0 0 12px transparent;cursor:pointer}
 .sheet .top{display:flex;gap:8px;align-items:flex-start;padding:4px 14px 10px;border-bottom:1px solid var(--line)}
 .sheet .top h2{margin:0;font-size:16px;flex:1;line-height:1.3;word-break:break-word}
 .sheet .body{overflow:auto;-webkit-overflow-scrolling:touch;padding:12px 14px 24px;flex:1}
@@ -64,8 +65,10 @@ header .meta{font-size:11px;color:var(--muted);margin-top:2px}
 @media (min-width:900px){
   #app{flex-direction:row}
   header{position:absolute;left:0;right:0;top:0}
-  .sheet{left:auto;right:0;top:0;bottom:0;width:min(420px,40vw);max-height:none;border-radius:0;border-left:1px solid var(--line);transform:translateX(105%)}
+  .sheet,.sheet.full{left:auto;right:0;top:0;bottom:0;width:min(420px,40vw);height:auto;max-height:none;border-radius:0;border-left:1px solid var(--line);transform:translateX(105%)}
   .sheet.open{transform:none}
   .sheet .handle{display:none}
   .hud{bottom:16px}
 }
+.nb{margin:4px 0 12px;font-size:13px}.nb summary{color:var(--muted);cursor:pointer}.nb ul{padding-left:18px;margin:6px 0}.nb a{color:var(--acc)}.et{color:var(--muted);font-size:11px}
+.warn a{color:#fecdd3}

@@ -102,6 +102,7 @@ function render() {
   if (!S.token || S.view === 'setup') { root.innerHTML = setupHTML(); bindSetup(); return; }
   if (S.view === 'waiting') { root.innerHTML = waitingHTML(); bindChrome(); return; }
   if (S.view === 'settings') { root.innerHTML = settingsHTML(); bindChrome(); return; }
+  if (S.fg) { try { S.fg._destructor && S.fg._destructor(); } catch {} S.fg = null; S._fitted = false; S._fitDone = false; }
   root.innerHTML = graphHTML();
   bindChrome();
   paintGraph();
@@ -206,6 +207,7 @@ function bindChrome() {
   const oc = $('#outcount'); if (oc) { const n = outItems().length; oc.textContent = n ? `(${n})` : ''; }
   document.querySelectorAll('[data-focus]').forEach(b => b.onclick = () => {
     S.view = 'graph'; S.sel = b.dataset.focus; render();
+    setTimeout(() => focusNode(b.dataset.focus), 900);
   });
   const meta = $('#meta');
   if (meta && S.graph) meta.textContent = `${S.graph.nodes.length} nodes · ${S.graph.edges.length} edges`;
@@ -239,6 +241,7 @@ function paintGraph() {
   const nodes = filteredNodes().map(n => ({
     id: n.id, name: n.title, group: n.group, degree: n.degree || 0,
     flagged: !!(n.contradictions && n.contradictions.length),
+    soft: !!(n.citesContradicted && n.citesContradicted.length),
     val: 1 + Math.min(6, Math.sqrt(n.degree || 1)),
   }));
   const edges = filteredEdges(nodes).map(e => ({
@@ -254,6 +257,7 @@ function paintGraph() {
   if (!window.ForceGraph) { el.innerHTML = '<div class="empty">Graph library failed to load.</div>'; return; }
   if (!S.fg) {
     S.fg = ForceGraph()(el)
+      .width(el.clientWidth).height(el.clientHeight)
       .backgroundColor('rgba(0,0,0,0)')
       .nodeId('id')
       .nodeLabel(n => n.name)
@@ -261,28 +265,38 @@ function paintGraph() {
       .nodeVal('val')
       .nodeCanvasObjectMode(() => 'after')
       .nodeCanvasObject((n, ctx, scale) => {
-        if (!n.flagged) return;
         const r = Math.sqrt(Math.max(0.5, n.val || 1)) * 4;
-        ctx.beginPath(); ctx.arc(n.x, n.y, r / scale + 3 / scale, 0, 2 * Math.PI);
-        ctx.strokeStyle = '#fb7185'; ctx.lineWidth = 2 / scale; ctx.stroke();
+        if (n.flagged || n.soft) {
+          ctx.beginPath(); ctx.arc(n.x, n.y, r + 2.5, 0, 2 * Math.PI);
+          ctx.strokeStyle = n.flagged ? '#fb7185' : 'rgba(251,113,133,.55)';
+          ctx.setLineDash(n.flagged ? [] : [2, 2]); ctx.lineWidth = n.flagged ? 1.6 : 1; ctx.stroke(); ctx.setLineDash([]);
+        }
+        if (scale > 2.2 && !n.__dim) {
+          const label = n.name.length > 28 ? n.name.slice(0, 27) + '…' : n.name;
+          ctx.font = `${11 / scale}px -apple-system,system-ui,sans-serif`;
+          ctx.fillStyle = 'rgba(232,236,245,.85)'; ctx.textAlign = 'center';
+          ctx.fillText(label, n.x, n.y + r + 9 / scale);
+        }
       })
       .linkColor(l => (EDGE_STYLE[l.type] || EDGE_STYLE.link).color)
       .linkWidth(l => (EDGE_STYLE[l.type] || EDGE_STYLE.link).width)
       .linkDirectionalParticles(l => l.type === 'contradiction' ? 2 : 0)
       .linkDirectionalParticleWidth(2)
       .linkDirectionalParticleColor(() => '#fb7185')
-      .onNodeClick(n => { S.sel = n.id; openSheet(n.id); highlight(n.id); })
+      .onNodeClick(n => { S.sel = n.id; openSheet(n.id); highlight(n.id); centerVisible(n, null); })
       .onBackgroundClick(() => { S.sel = null; closeSheet(); highlight(null); })
       .enableNodeDrag(true)
       .enableZoomInteraction(true)
       .enablePanInteraction(true);
+    new ResizeObserver(() => { if (S.fg && el.isConnected) S.fg.width(el.clientWidth).height(el.clientHeight); }).observe(el);
     // Fit once after first data
     S._fitted = false;
   }
   S.fg.graphData({ nodes, links: edges });
   if (!S._fitted && nodes.length) {
     S._fitted = true;
-    setTimeout(() => S.fg.zoomToFit(400, 40), 50);
+    S.fg.cooldownTime(4000).onEngineStop(() => { if (!S._fitDone && !S.sel) { S._fitDone = true; S.fg.zoomToFit(500, 30); } });
+    setTimeout(() => { if (!S.sel) S.fg.zoomToFit(400, 30); }, 1200);
   }
   if (S.sel) highlight(S.sel);
 }
@@ -323,17 +337,77 @@ function openSheet(id) {
   html += `<dl class="kv">
     <dt>Path</dt><dd><code>${esc(n.id)}</code></dd>
     <dt>Date</dt><dd>${esc(n.date || '—')}</dd>
-    <dt>Source</dt><dd>${esc(n.source || '—')}</dd>
+    <dt>Source</dt><dd>${sourceHTML(n)}</dd>
     <dt>Summary</dt><dd>${esc(n.summary || '—')}</dd>
   </dl>`;
   if (n.contradictions?.length) {
-    html += `<div class="warn"><b>Flagged in contradictions log</b><ul style="margin:6px 0 0;padding-left:18px">${n.contradictions.map(c => `<li>${esc(c)}</li>`).join('')}</ul></div>`;
+    html += `<div class="warn"><b>Flagged in contradictions log</b><ul style="margin:6px 0 0;padding-left:18px">${n.contradictions.map(c => typeof c === 'string' ? `<li>${esc(c)}</li>` : `<li><b>${esc(c.heading)}</b>${c.conflict ? `<div>${esc(c.conflict)}</div>` : ''}${c.deciding ? `<div style="margin-top:4px"><i>Needs deciding:</i> ${esc(c.deciding)}</div>` : ''}</li>`).join('')}</ul></div>`;
   }
-  const md = (typeof marked !== 'undefined' ? marked.parse(n.content || '') : `<pre>${esc(n.content || '')}</pre>`);
+  if (n.citesContradicted?.length) {
+    html += `<div class="warn" style="background:#2a1720;border-color:#5b2333"><b>Cites a source with an open contradiction</b><ul style="margin:6px 0 0;padding-left:18px">${n.citesContradicted.map(id => `<li><a href="#" data-goto="${esc(id)}">${esc(nodeById(id)?.title || id)}</a></li>`).join('')}</ul></div>`;
+  }
+  const nb = neighbours(n.id);
+  if (nb.length) html += `<details class="nb"><summary>${nb.length} connections</summary><ul>${nb.map(([id, t]) => `<li><a href="#" data-goto="${esc(id)}">${esc(nodeById(id)?.title || id)}</a> <span class="et">${esc(t)}</span></li>`).join('')}</ul></details>`;
+  let text = n.content || '';
+  const h = text.match(/^#\s+(.+)\n/); if (h && h[1].trim() === (n.title || '').trim()) text = text.slice(h[0].length);
+  const md = (typeof marked !== 'undefined' ? marked.parse(text) : `<pre>${esc(n.content || '')}</pre>`);
   html += `<div class="md">${md}</div>`;
-  $('#shbody').innerHTML = html;
-  sheet.classList.add('open'); sheet.setAttribute('aria-hidden', 'false');
+  const body = $('#shbody'); body.innerHTML = html; body.scrollTop = 0;
+  body.querySelectorAll('.md a[href]').forEach(a => {
+    const href = a.getAttribute('href');
+    if (/^[a-z]+:/i.test(href)) { a.target = '_blank'; a.rel = 'noopener noreferrer'; return; }
+    const t = resolveHref(n.id, href);
+    if (t) a.dataset.goto = t; else a.removeAttribute('href');
+  });
+  body.querySelectorAll('[data-goto]').forEach(a => a.onclick = ev => { ev.preventDefault(); focusNode(a.dataset.goto); });
+  sheet.classList.add('open'); sheet.classList.remove('full'); sheet.setAttribute('aria-hidden', 'false');
+  sheet.querySelector('.handle').onclick = () => sheet.classList.toggle('full');
   highlight(id);
+}
+function sourceHTML(n) {
+  const s = n.source || '';
+  const m = s.match(/https:\/\/mail\.google\.com\/[^\s)]+/);
+  if (m) return `<a href="${esc(m[0])}" target="_blank" rel="noopener noreferrer" style="color:var(--acc)">Open in Gmail</a>`;
+  if (!s && n.group.startsWith('wiki')) { const k = neighbours(n.id).filter(([, t]) => t === 'source').length; return k ? `cites ${k} raw file${k > 1 ? 's' : ''}` : '—'; }
+  return s ? esc(s) : '—';
+}
+function nodeById(id) { return (S.graph?.nodes || []).find(x => x.id === id); }
+function neighbours(id) {
+  const out = new Map();
+  for (const e of S.graph?.edges || []) {
+    if (e.source === id && !out.has(e.target)) out.set(e.target, e.type);
+    else if (e.target === id && !out.has(e.source)) out.set(e.source, e.type);
+  }
+  return [...out.entries()];
+}
+function resolveHref(fromId, href) {
+  href = decodeURIComponent(href.split('#')[0]); if (!href) return null;
+  const parts = fromId.split('/'); parts.pop();
+  for (const p of href.split('/')) { if (p === '..') parts.pop(); else if (p && p !== '.') parts.push(p); }
+  let id = parts.join('/');
+  const sb = fromId.startsWith('sb/');
+  if (sb && !id.startsWith('sb/')) id = 'sb/' + id;
+  const ok = x => S.graph.nodes.some(n => n.id === x);
+  if (ok(id)) return id; if (ok(id + '.md')) return id + '.md';
+  return null;
+}
+function focusNode(id) {
+  if (!nodeById(id)) return;
+  const n = nodeById(id);
+  S.filters.add(n.group); S.sel = id;
+  if (S.view !== 'graph') { S.view = 'graph'; render(); return; }
+  paintGraph(); bindChrome(); openSheet(id);
+  const gn = S.fg?.graphData().nodes.find(x => x.id === id);
+  if (gn && gn.x != null) centerVisible(gn, 2.5);
+}
+function centerVisible(n, zoom) {
+  // keep the node in the part of the graph the bottom sheet doesn't cover
+  const z = zoom || S.fg.zoom();
+  const sheet = $('#sheet');
+  const phone = window.innerWidth < 900;
+  const cover = phone && sheet ? sheet.getBoundingClientRect().height : 0;
+  if (zoom) S.fg.zoom(z, 500);
+  S.fg.centerAt(n.x, n.y + (cover / 2) / z, 500);
 }
 function closeSheet() {
   const sheet = $('#sheet'); if (!sheet) return;
